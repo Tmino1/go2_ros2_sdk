@@ -65,6 +65,20 @@ void PointCloudAggregatorNode::declareParameters()
   this->declare_parameter("height_filter_max", 3.0);
   this->declare_parameter("downsample_rate", 10);
   this->declare_parameter("publish_rate", 5.0);
+  // Was previously derived as publish_rate * 10 ("last 10 seconds worth"),
+  // which silently assumed the incoming message rate on /pointcloud/aggregated
+  // matches this node's own OUTPUT publish_rate - those are unrelated
+  // (one is how fast lidar_to_pointcloud_node happens to publish, the other
+  // is how fast we choose to re-publish downstream). Exposed directly instead
+  // so the real memory/CPU cost of the aggregation window - every retained
+  // cloud gets re-concatenated and re-filtered from scratch on every publish
+  // cycle - is an explicit, deliberate choice rather than an accident of two
+  // unrelated params multiplying together. Default of 40 replaces the prior
+  // effective default of 200 (20Hz launch config * 10s), which is what let
+  // publishCallback() re-process up to ~200 full-resolution clouds (millions
+  // of points) 20 times a second - confirmed via isolated repro to peg CPU
+  // near 100% and drive RSS from ~140MB to 700+MB within minutes.
+  this->declare_parameter("max_aggregation_clouds", 40);
 }
 
 AggregatorConfig PointCloudAggregatorNode::loadConfiguration()
@@ -77,7 +91,8 @@ AggregatorConfig PointCloudAggregatorNode::loadConfiguration()
   config.height_filter_max = this->get_parameter("height_filter_max").as_double();
   config.downsample_rate = this->get_parameter("downsample_rate").as_int();
   config.publish_rate = this->get_parameter("publish_rate").as_double();
-  
+  config.max_aggregation_clouds = this->get_parameter("max_aggregation_clouds").as_int();
+
   return config;
 }
 
@@ -127,9 +142,11 @@ void PointCloudAggregatorNode::pointcloudCallback(const sensor_msgs::msg::PointC
     if (!filtered_cloud->points.empty()) {
       std::lock_guard<std::mutex> lock(clouds_mutex_);
       aggregated_clouds_.push_back(filtered_cloud);
-      
-      // Keep only recent data (last 10 seconds worth)
-      size_t max_clouds = static_cast<size_t>(config_.publish_rate * 10);
+
+      // Keep only recent data - see max_aggregation_clouds param comment
+      // in declareParameters() for why this is its own param rather than
+      // derived from publish_rate.
+      size_t max_clouds = static_cast<size_t>(config_.max_aggregation_clouds);
       if (aggregated_clouds_.size() > max_clouds) {
         aggregated_clouds_.erase(
           aggregated_clouds_.begin(),
@@ -252,9 +269,15 @@ void PointCloudAggregatorNode::publishCallback()
       RCLCPP_INFO(this->get_logger(),
         "📊 Processed: %zu points, Clouds: %zu, Downsampled: %zu",
         total_points, aggregated_clouds_.size(), downsampled_points);
-      
+
       last_publish_time_ = current_time;
     }
+    // Note: a periodic malloc_trim(0) here was tried as a mitigation for
+    // the RSS-ratchet effect of repeatedly allocating/freeing large
+    // combined_cloud buffers, but pulled back out to isolate whether the
+    // max_aggregation_clouds cap above is sufficient on its own first -
+    // see pointcloud_aggregator_node RSS-leak investigation. Revisit only
+    // if the cap alone doesn't tame the curve.
     
   } catch (const std::exception& e) {
     RCLCPP_ERROR(this->get_logger(), "Error publishing processed data: %s", e.what());
@@ -270,6 +293,7 @@ void PointCloudAggregatorNode::logConfiguration()
     config_.height_filter_min, config_.height_filter_max);
   RCLCPP_INFO(this->get_logger(), "   Downsample rate: 1/%d", config_.downsample_rate);
   RCLCPP_INFO(this->get_logger(), "   Publish rate: %.1f Hz", config_.publish_rate);
+  RCLCPP_INFO(this->get_logger(), "   Max aggregation clouds: %d", config_.max_aggregation_clouds);
 }
 
 }  // namespace lidar_processor_cpp

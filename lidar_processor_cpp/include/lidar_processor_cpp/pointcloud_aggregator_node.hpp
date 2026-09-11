@@ -27,6 +27,7 @@ struct AggregatorConfig
   double height_filter_max;  // Maximum height (z-coordinate)
   int downsample_rate;       // Keep every Nth point
   double publish_rate;       // Hz
+  int max_aggregation_clouds;  // Hard cap on retained clouds, independent of publish_rate
 };
 
 class StatisticalFilter

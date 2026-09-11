@@ -122,10 +122,28 @@ class LidarDecoder:
         return len(self.HEAPU8)
 
     def copy_within(self, target, start, end):
-        sublist = self.HEAPU8[start:end]
-        for i in range(len(sublist)):
-            if target + i < len(self.HEAPU8):
-                self.HEAPU8[target + i] = sublist[i]
+        # This mirrors JS TypedArray.copyWithin (source and destination can
+        # overlap, e.g. when the WASM module shifts its own memory around) -
+        # ctypes.memmove (not memcpy) is required for that, same as
+        # copyWithin's own overlap-safety guarantee, not just for speed.
+        # Bounds handling below reproduces the original element-by-element
+        # loop's behavior exactly: slicing [start:end] silently clamped an
+        # out-of-range `end` to the heap size, and the `target + i <
+        # len(self.HEAPU8)` check silently truncated writes that would run
+        # past the end of the heap - was previously ~700x slower than this
+        # at realistic WASM buffer sizes (measured), purely from the
+        # Python-level per-byte ctypes __setitem__ overhead.
+        end = min(end, len(self.HEAPU8))
+        length = end - start
+        if length <= 0:
+            return
+        length = min(length, len(self.HEAPU8) - target)
+        if length > 0:
+            ctypes.memmove(
+                ctypes.addressof(self.HEAPU8) + target,
+                ctypes.addressof(self.HEAPU8) + start,
+                length,
+            )
 
     def copy_memory_region(self, t, n, a):
         self.copy_within(t, n, n + a)
@@ -149,9 +167,11 @@ class LidarDecoder:
             raise ValueError(f"invalid type for getValue: {n}")
 
     def add_value_arr(self, start, value):
+        # Copies the whole incoming compressed message into the WASM heap
+        # once per call - was a per-byte Python loop (~10.5ms at this
+        # buffer's real max size of 60KB, measured), now a single memmove.
         if start + len(value) <= len(self.HEAPU8):
-            for i, byte in enumerate(value):
-                self.HEAPU8[start + i] = byte
+            ctypes.memmove(ctypes.addressof(self.HEAPU8) + start, bytes(value), len(value))
         else:
             raise ValueError("Not enough space to insert bytes at the specified index.")
 

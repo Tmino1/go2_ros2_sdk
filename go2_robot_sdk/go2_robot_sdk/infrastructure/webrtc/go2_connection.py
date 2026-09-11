@@ -19,9 +19,15 @@ from aiortc import RTCPeerConnection, RTCSessionDescription, MediaStreamTrack
 from .crypto.encryption import CryptoUtils, ValidationCrypto, PathCalculator, EncryptionError
 from .http_client import HttpClient, WebRTCHttpError
 from .data_decoder import WebRTCDataDecoder, DataDecodingError
+from .hw_decode import install_hardware_decoder
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 logger = logging.getLogger(__name__)
+
+# Must run before any RTCPeerConnection negotiates a video track - see
+# hw_decode/hw_h264_decoder.py's install_hardware_decoder() docstring for
+# why module-import time is a safe and sufficient place for this.
+install_hardware_decoder()
 
 
 class Go2ConnectionError(Exception):

@@ -86,6 +86,7 @@ class Go2NodeFactory:
             DeclareLaunchArgument('localization', default_value='false', description='Launch AMCL for localization (use with saved map)'),
             DeclareLaunchArgument('map', default_value=self.config.map_file, description='Full path to map yaml file for localization'),
             DeclareLaunchArgument('foxglove', default_value='true', description='Launch Foxglove Bridge'),
+            DeclareLaunchArgument('speech', default_value='false', description='Launch TTS/speech_processor node'),
             DeclareLaunchArgument('joystick', default_value='true', description='Launch joystick'),
             DeclareLaunchArgument('teleop', default_value='true', description='Launch teleoperation'),
         ]
@@ -196,6 +197,8 @@ class Go2NodeFactory:
     
     def create_core_nodes(self) -> List[Node]:
         """Create core Go2 robot nodes"""
+        with_speech = LaunchConfiguration('speech', default='false')
+
         return [
             # Main robot driver (clean architecture)
             Node(
@@ -234,7 +237,22 @@ class Go2NodeFactory:
                     'height_filter_min': -2.0,
                     'height_filter_max': 3.0,
                     'downsample_rate': 1,
-                    'publish_rate': 20.0
+                    # Was 20.0. Every publish cycle re-concatenates and
+                    # re-filters the *entire* retained window from scratch
+                    # (see max_aggregation_clouds), so this is also "how
+                    # often we redo that full-window pass per second" - cut
+                    # in half here (on top of shrinking the window itself)
+                    # as part of taming the CPU cost that was pegging this
+                    # node near 100% and, we now believe, still slowly
+                    # degrading /scan even after the window-size fix alone.
+                    'publish_rate': 10.0,
+                    # Was implicitly 200 (publish_rate(20) * 10, see node's
+                    # own comment history) - RSS-leak/CPU investigation.
+                    # First cut to 40 fixed the unbounded RSS growth but
+                    # left /scan still slowly declining under sustained
+                    # ~100% CPU on this node; cutting further here to see
+                    # whether that's what it takes to actually plateau.
+                    'max_aggregation_clouds': 15
                 }],
             ),
             # TTS Node (new separate package)
@@ -242,6 +260,7 @@ class Go2NodeFactory:
                 package='speech_processor',
                 executable='tts_node',
                 name='tts_node',
+                condition=IfCondition(with_speech),
                 parameters=[{
                     'api_key': os.getenv('ELEVENLABS_API_KEY', ''),
                     'provider': 'elevenlabs',
