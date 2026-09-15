@@ -158,6 +158,7 @@ class Go2NodeFactory:
                 ],
                 parameters=[{
                     'target_frame': f'{namespace}/base_link',
+                    'queue_size': 20,
                     'max_height': 2.0,
                     'min_height': -0.2,
                     'angle_min': -3.14159,
@@ -182,6 +183,7 @@ class Go2NodeFactory:
                 ],
                 parameters=[{
                     'target_frame': 'base_link',
+                    'queue_size': 20,
                     'max_height': 2.0,
                     'min_height': -0.2,
                     'angle_min': -3.14159,
@@ -231,6 +233,20 @@ class Go2NodeFactory:
                 package='lidar_processor_cpp',
                 executable='pointcloud_aggregator_node',
                 name='pointcloud_aggregator',
+                # Feed the aggregator the robot's OWN deskewed lidar over DDS
+                # rather than the WebRTC voxel cloud: measured 14.7Hz / ~10.7k
+                # pts / ~15ms old, vs 2.4Hz / ~121k pts / ~40ms. Verified to be
+                # in the same odom frame as the driver's odom->base_link
+                # (dx/dy/dyaw 0.000; dz -0.07 is the driver's own +0.07 z
+                # offset; 10cm obstacle-cell overlap 70%, best shift 0.1m).
+                # Earlier history: this remap first pointed at /point_cloud2 to
+                # bypass lidar_to_pointcloud_node, whose full-map republish
+                # arrived 4-8s late and left slam's map->odom 5-19s stale.
+                # The WebRTC lidar decode stays ON so /point_cloud2 still feeds
+                # lidar_to_pointcloud_node's 3d_map.ply.
+                remappings=[
+                    ('/pointcloud/aggregated', '/utlidar/cloud_deskewed'),
+                ] if self.config.conn_mode == 'single' else [],
                 parameters=[{
                     'max_range': 20.0,
                     'min_range': 0.1,
@@ -252,7 +268,11 @@ class Go2NodeFactory:
                     # left /scan still slowly declining under sustained
                     # ~100% CPU on this node; cutting further here to see
                     # whether that's what it takes to actually plateau.
-                    'max_aggregation_clouds': 15
+                    # 3 -> 7 with the native cloud as input: each deskewed scan
+                    # is ~10.7k pts at 14.7Hz (not a whole local map), so ~7
+                    # clouds is ~0.5s of coverage at ~75k points - similar total
+                    # points to before, much fresher.
+                    'max_aggregation_clouds': 7
                 }],
             ),
             # TTS Node (new separate package)

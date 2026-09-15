@@ -192,6 +192,15 @@ void LidarToPointCloudNode::lidarCallback(const sensor_msgs::msg::PointCloud2::S
 void LidarToPointCloudNode::publishAggregatedPointcloud(const std_msgs::msg::Header& header)
 {
   try {
+    // Republishing copies the ENTIRE accumulated map (up to max_points) and
+    // used to run on every incoming cloud - ~1 CPU core and 4-8s of latency
+    // on the Go2 Jetson (measured). Nav no longer consumes this topic
+    // (pointcloud_aggregator reads the driver's /point_cloud2 directly), so
+    // only pay for it when something is subscribed, e.g. a viewer. Map
+    // building (addPoints) and PLY saving are unaffected.
+    if (pointcloud_pub_->get_subscription_count() == 0) {
+      return;
+    }
     auto points = aggregator_->getPointsCopy();
     if (points.empty()) {
       return;

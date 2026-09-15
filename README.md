@@ -1,3 +1,25 @@
+# Fork changes (2026-09)
+
+This fork tunes nav2 down to safe, deliberate motion and fixes several perf/correctness bugs found while smoke-testing on hardware.
+
+**Nav2 - no unexpected rotation:**
+- Removed the `spin` recovery behavior entirely, and pointed `bt_navigator` at custom `navigate_to_pose_no_spin.xml` / `navigate_through_poses_no_spin.xml` trees (BackUp + wait/clear only) - the stock tree's `Spin 1.57rad` recovery rotated the robot 172deg unexpectedly.
+- Capped all motion via a `velocity_smoother` block that didn't exist before (robot ran on nav2 defaults, max 0.5 m/s / 2.5 rad/s): now 0.30 m/s linear, 0.40 rad/s angular, matching the same caps on `FollowPath`.
+- Tightened planner `tolerance` 3.0m -> 0.25m: a blocked goal was silently planning to the nearest reachable pose and the goal checker counted that as SUCCEEDED with zero motion.
+- Raised `BaseObstacle.scale` 0.02 -> 1.0 and inflation `cost_scaling_factor`/`inflation_radius` 1.0/0.25 -> 3.0/0.55 so the planner and controller agree on what "too close" means, instead of the planner returning paths through near-max-cost cells.
+
+**Lidar/pointcloud pipeline:**
+- `pointcloud_aggregator` now consumes the driver's own deskewed lidar (`/utlidar/cloud_deskewed`) instead of the WebRTC voxel cloud: 14.7Hz/~10.7k pts/~15ms old vs 2.4Hz/~121k pts/~40ms old, verified in the same odom frame.
+- Fixed `pointcloud_aggregator`'s output header, which was hardcoded to `base_link` + `now()` with no transform - world-frame points were being read downstream as body-relative, putting the floor inside the obstacle height window and creating a phantom obstacle ring around the robot. Now republishes with the input cloud's real frame/stamp, and only when new input actually arrived.
+- Added exact-position dedup (>=34% of each raw cloud was duplicate points on the Go2's 5cm voxel grid) in both the aggregator and `lidar_decoder.py` (packed-integer key instead of per-row `np.unique`, ~48% of the driver node's CPU before this).
+- Fixed a hash collision bug in `lidar_to_pointcloud_node`'s point hash (sign-extended ints erased each other when OR'd) that was silently collapsing ~80k distinct map cells down to ~27k.
+- `lidar_to_pointcloud_node` now skips its full-map republish when nothing is subscribed (was running on every incoming cloud - ~1 CPU core, 4-8s latency; nav no longer reads this topic).
+
+**URDF:**
+- Removed bogus static `odom`/`map` links/joints - they made `robot_state_publisher` broadcast identity transforms on `/tf_static` that fought the real `odom->base_link` (driver) and `map->odom` (slam_toolbox) transforms.
+
+---
+
 ![Ros2 SDK](https://github.com/abizovnuralem/go2_ros2_sdk/assets/33475993/49edebbe-11b6-49c6-b82d-bc46257674bd)
 
 # Welcome to the Unitree Go2 ROS2 SDK Project!

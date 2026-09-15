@@ -11,6 +11,7 @@
 
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/point_cloud2.hpp"
+#include "std_msgs/msg/header.hpp"
 #include "pcl/point_cloud.h"
 #include "pcl/point_types.h"
 #include "pcl/filters/statistical_outlier_removal.h"
@@ -66,6 +67,12 @@ private:
   std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr> aggregated_clouds_;
   std::chrono::steady_clock::time_point last_publish_time_;
   mutable std::mutex clouds_mutex_;
+  // Newest input cloud header (guarded by clouds_mutex_), reused on output so
+  // the published frame_id/stamp match where the points really are.
+  std_msgs::msg::Header latest_input_header_;
+  bool have_input_header_ = false;
+  // Set by pointcloudCallback, cleared by publishCallback (clouds_mutex_).
+  bool new_input_since_publish_ = false;
   
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr subscription_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr filtered_pub_;

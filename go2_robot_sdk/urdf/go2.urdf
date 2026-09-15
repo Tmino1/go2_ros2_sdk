@@ -42,20 +42,10 @@ Stephen Brawner (brawner@gmail.com)
       </geometry>
     </collision>
   </link>
-  <link
-    name="odom">
-  </link>
-  <joint
-    name="odom_joint"
-    type="fixed">
-    <origin
-      xyz="0 0 0"
-      rpy="0 0 0" />
-    <parent
-      link="odom" />
-    <child
-      link="base_link" />
-  </joint>
+  <!-- No odom/map links: go2_driver_node publishes odom->base_link and
+       slam_toolbox publishes map->odom. Fixed joints for them here made
+       robot_state_publisher broadcast identity copies of both on
+       /tf_static, fighting the real transforms. -->
 
   <joint name="base_footprint_joint" type="fixed">
     <parent link="base_link"/>
@@ -64,20 +54,6 @@ Stephen Brawner (brawner@gmail.com)
   </joint>
   <link name="base_footprint">
     </link>
-  <link
-    name="map">
-  </link>
-  <joint
-    name="map_joint"
-    type="fixed">
-    <origin
-      xyz="0 0 0"
-      rpy="0 0 0" />
-    <parent
-      link="map" />
-    <child
-      link="odom" />
-  </joint>
   <link
     name="Head_upper">
     <inertial>

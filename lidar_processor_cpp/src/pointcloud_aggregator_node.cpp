@@ -4,6 +4,8 @@
 #include "lidar_processor_cpp/pointcloud_aggregator_node.hpp"
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
+#include <unordered_set>
 
 namespace lidar_processor_cpp
 {
@@ -79,6 +81,10 @@ void PointCloudAggregatorNode::declareParameters()
   // of points) 20 times a second - confirmed via isolated repro to peg CPU
   // near 100% and drive RSS from ~140MB to 700+MB within minutes.
   this->declare_parameter("max_aggregation_clouds", 40);
+  // Runtime-switchable so its cost can be A/B measured within one launch
+  // (`ros2 param set /pointcloud_aggregator enable_outlier_filter false`):
+  // read on every input cloud in applyFilters(). Default ON = unchanged.
+  this->declare_parameter("enable_outlier_filter", true);
 }
 
 AggregatorConfig PointCloudAggregatorNode::loadConfiguration()
@@ -135,6 +141,35 @@ void PointCloudAggregatorNode::pointcloudCallback(const sensor_msgs::msg::PointC
       return;
     }
     
+    // Drop exact-position repeats before filtering. The Go2's voxel map is on
+    // a 5cm grid and each driver cloud repeats the same voxel (different
+    // intensities): measured >=34% of every ~121k-point cloud is duplicate xyz
+    // (80k distinct cells across a whole session vs ~121k points per cloud).
+    // Keyed on 1mm-rounded coordinates, 21 bits per axis (+/-1048m).
+    {
+      std::unordered_set<uint64_t> seen;
+      seen.reserve(cloud->points.size());
+      pcl::PointCloud<pcl::PointXYZ>::Ptr unique_cloud(new pcl::PointCloud<pcl::PointXYZ>);
+      unique_cloud->points.reserve(cloud->points.size());
+      const uint64_t mask = 0x1FFFFF;
+      for (const auto& pt : cloud->points) {
+        if (!std::isfinite(pt.x) || !std::isfinite(pt.y) || !std::isfinite(pt.z)) {
+          continue;
+        }
+        const uint64_t key =
+          ((static_cast<uint64_t>(static_cast<int64_t>(std::lround(pt.x * 1000.0f))) & mask) << 42) |
+          ((static_cast<uint64_t>(static_cast<int64_t>(std::lround(pt.y * 1000.0f))) & mask) << 21) |
+          (static_cast<uint64_t>(static_cast<int64_t>(std::lround(pt.z * 1000.0f))) & mask);
+        if (seen.insert(key).second) {
+          unique_cloud->points.push_back(pt);
+        }
+      }
+      unique_cloud->width = unique_cloud->points.size();
+      unique_cloud->height = 1;
+      unique_cloud->is_dense = true;
+      cloud = unique_cloud;
+    }
+    
     // Apply filters
     auto filtered_cloud = applyFilters(cloud);
     
@@ -142,6 +177,9 @@ void PointCloudAggregatorNode::pointcloudCallback(const sensor_msgs::msg::PointC
     if (!filtered_cloud->points.empty()) {
       std::lock_guard<std::mutex> lock(clouds_mutex_);
       aggregated_clouds_.push_back(filtered_cloud);
+      latest_input_header_ = msg->header;
+      have_input_header_ = true;
+      new_input_since_publish_ = true;
 
       // Keep only recent data - see max_aggregation_clouds param comment
       // in declareParameters() for why this is its own param rather than
@@ -196,7 +234,9 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr PointCloudAggregatorNode::applyFilters(
   filtered_cloud->is_dense = true;
   
   // Statistical outlier removal (only if enough points)
-  if (filtered_cloud->points.size() > 100) {
+  if (this->get_parameter("enable_outlier_filter").as_bool() &&
+    filtered_cloud->points.size() > 100)
+  {
     filtered_cloud = statistical_filter_->filterPoints(filtered_cloud);
   }
   
@@ -208,9 +248,15 @@ void PointCloudAggregatorNode::publishCallback()
   try {
     std::lock_guard<std::mutex> lock(clouds_mutex_);
     
-    if (aggregated_clouds_.empty()) {
+    // Only publish when a new input cloud arrived since the last publish:
+    // re-publishing the same stamped cloud at the timer rate made
+    // pointcloud_to_laserscan re-transform identical ~7MB clouds and fed
+    // slam/costmaps repeated scan stamps (measured: 3 distinct stamps in 28
+    // scans). Checked before combining so idle timer ticks cost nothing.
+    if (aggregated_clouds_.empty() || !new_input_since_publish_) {
       return;
     }
+    new_input_since_publish_ = false;
     
     // Combine all stored point clouds
     pcl::PointCloud<pcl::PointXYZ>::Ptr combined_cloud(new pcl::PointCloud<pcl::PointXYZ>);
@@ -228,10 +274,20 @@ void PointCloudAggregatorNode::publishCallback()
     combined_cloud->height = 1;
     combined_cloud->is_dense = true;
     
-    // Create header
-    std_msgs::msg::Header header;
-    header.stamp = this->get_clock()->now();
-    header.frame_id = "base_link";
+    // Publish in the frame the points are actually expressed in (the
+    // driver's world-frame "odom"), stamped with the newest input cloud.
+    // This used to hardcode "base_link" + now() without transforming
+    // anything, so world-frame points were read downstream as body-relative:
+    // the floor (world z ~-0.18..-0.02, body at z 0.376) landed inside
+    // pointcloud_to_laserscan's min_height -0.2 window and became an
+    // obstacle ring around the robot. pointcloud_to_laserscan transforms
+    // into its target_frame itself (tf2 MessageFilter), so the correct label
+    // is all that's needed - retained clouds are world-fixed, so aggregating
+    // them in odom is right.
+    if (!have_input_header_) {
+      return;
+    }
+    std_msgs::msg::Header header = latest_input_header_;
     
     // Publish filtered cloud
     sensor_msgs::msg::PointCloud2 filtered_msg;

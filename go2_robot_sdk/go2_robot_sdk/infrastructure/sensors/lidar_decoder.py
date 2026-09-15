@@ -59,9 +59,53 @@ def update_meshes_for_cloud2(
         positions_with_intensities[:, -1] > intense_limiter
     ]
 
-    # Remove duplicate points
-    unique_points = np.unique(filtered_points, axis=0)
-    
+    # Remove duplicate points.
+    #
+    # np.unique(filtered_points, axis=0) was ~48% of go2_driver_node's total
+    # CPU (profiled via cProfile, 2026-09-11) - numpy's axis=0 path already
+    # collapses each row to a single comparable key internally (confirmed by
+    # reading numpy's own arraysetops.py source - the "view as structured
+    # dtype" trick people often suggest for this is already what it does
+    # internally, benchmarked at 1.00-1.01x, not a real fix), but it still
+    # pays for a generic per-row comparator.
+    #
+    # The actual win: every value in filtered_points is provably integer-
+    # valued at this point, not just "on a coarse grid" - position_array
+    # started life as raw uint8 bytes off the WASM heap (0-255) before
+    # `*= res; += origin` was applied above, and intensities are the min of
+    # two more raw uint8 bytes cast straight to float32 (0-255, untouched by
+    # res/origin). So `round((position - origin) / res)` exactly inverts
+    # that transform back to the original 0-255 integers (the round() only
+    # needs to absorb float32 rounding noise, not real precision loss), and
+    # `round(intensity)` is already exact. Packing those 4 small integers
+    # into one int64 key lets np.unique sort plain scalars instead of
+    # comparing rows - verified bit-for-bit identical to the old
+    # implementation (values and order) across 867 randomized + edge-case
+    # trials, see verify_unique_fix.py.
+    if filtered_points.shape[0] == 0:
+        return filtered_points
+
+    x_idx = np.round((filtered_points[:, 0] - origin[0]) / res).astype(np.int64)
+    y_idx = np.round((filtered_points[:, 1] - origin[1]) / res).astype(np.int64)
+    z_idx = np.round((filtered_points[:, 2] - origin[2]) / res).astype(np.int64)
+    i_idx = np.round(filtered_points[:, 3]).astype(np.int64)
+
+    # Each index is really a raw uint8 byte (0-255, 8 bits) - mask to 16
+    # bits/component (64 bits total across 4 components) as a safety margin
+    # so this can't silently mis-key data if that assumption ever loosens
+    # upstream, and to keep sign bits from a stray negative index (float
+    # noise) from polluting a neighboring component via bit-shifting.
+    mask = np.int64(0xFFFF)
+    keys = (
+        ((x_idx & mask) << 48)
+        | ((y_idx & mask) << 32)
+        | ((z_idx & mask) << 16)
+        | (i_idx & mask)
+    )
+
+    _, unique_idx = np.unique(keys, return_index=True)
+    unique_points = filtered_points[unique_idx]
+
     return unique_points
 
 
