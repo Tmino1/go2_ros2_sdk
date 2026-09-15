@@ -2,8 +2,7 @@
 
 This fork tunes nav2 down to safe, deliberate motion and fixes several perf/correctness bugs found while smoke-testing on hardware.
 
-**Nav2 - no unexpected rotation:**
-- Removed the `spin` recovery behavior entirely, and pointed `bt_navigator` at custom `navigate_to_pose_no_spin.xml` / `navigate_through_poses_no_spin.xml` trees (BackUp + wait/clear only) - the stock tree's `Spin 1.57rad` recovery rotated the robot 172deg unexpectedly.
+**Nav2 - safer motion:**
 - Capped all motion via a `velocity_smoother` block that didn't exist before (robot ran on nav2 defaults, max 0.5 m/s / 2.5 rad/s): now 0.30 m/s linear, 0.40 rad/s angular, matching the same caps on `FollowPath`.
 - Tightened planner `tolerance` 3.0m -> 0.25m: a blocked goal was silently planning to the nearest reachable pose and the goal checker counted that as SUCCEEDED with zero motion.
 - Raised `BaseObstacle.scale` 0.02 -> 1.0 and inflation `cost_scaling_factor`/`inflation_radius` 1.0/0.25 -> 3.0/0.55 so the planner and controller agree on what "too close" means, instead of the planner returning paths through near-max-cost cells.

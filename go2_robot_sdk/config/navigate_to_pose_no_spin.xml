@@ -1,8 +1,9 @@
 <!--
-  Copy of nav2's navigate_to_pose_w_replanning_and_recovery.xml with the Spin
-  recovery REMOVED and BackUp shortened to 0.15m. See go2-testing
-  smoke-test-log-2026-09-12.txt: the stock tree's Spin 1.57rad rotated the
-  robot 172deg during goal v2.
+  Copy of nav2's navigate_to_pose_w_replanning_and_recovery.xml with BackUp
+  shortened to 0.15m. Spin recovery was removed 2026-09-12 after the stock
+  tree's Spin 1.57rad rotated the robot 172deg during goal v2 (see go2-testing
+  smoke-test-log-2026-09-12.txt), then reinstated once that was root-caused -
+  kept as a distinct file from nav2's stock tree for the BackUp change.
 -->
 <root main_tree_to_execute="MainTree">
   <BehaviorTree ID="MainTree">
@@ -26,6 +27,7 @@
             <ClearEntireCostmap name="ClearLocalCostmap-Subtree" service_name="local_costmap/clear_entirely_local_costmap"/>
             <ClearEntireCostmap name="ClearGlobalCostmap-Subtree" service_name="global_costmap/clear_entirely_global_costmap"/>
           </Sequence>
+          <Spin spin_dist="1.57"/>
           <Wait wait_duration="5"/>
           <BackUp backup_dist="0.15" backup_speed="0.05"/>
         </RoundRobin>
