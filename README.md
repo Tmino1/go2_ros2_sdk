@@ -19,7 +19,7 @@ This fork tunes nav2 down to safe, deliberate motion and fixes several perf/corr
 
 ## How to use this fork's nix devShell
 
-The base repo's [Installation](#installation) section below assumes a plain Ubuntu 22.04 + ROS2 Humble setup. This fork's target Jetson runs JetPack 5.1.1 / Ubuntu 20.04, which can't host Humble normally - so instead, `flake.nix` / `flake.lock` define a pinned, reproducible Humble devShell (via `nix-ros-overlay`) that this fork is built and tested in. Use it instead of a native ROS2 install:
+The base repo's [Installation](#installation) section below assumes a plain Ubuntu 22.04 + ROS2 Humble setup, i.e. running on an off-board companion computer talking to the Go2 over WebRTC/DDS. This fork can now run directly **on the Go2's own onboard Jetson** instead - it ships JetPack 5.1.1 / Ubuntu 20.04, which can't host Humble natively, so `flake.nix` / `flake.lock` define a pinned, reproducible Humble devShell (via `nix-ros-overlay`) that this fork is built, run, and tested in on that exact hardware. Off-board setups can still use it the same way. To use the devShell instead of a native ROS2 install:
 
 1. [Install Nix](https://nixos.org/download) with flakes enabled.
 2. Enter the devShell and build the workspace from its root (one level above this repo, where your other packages live):
