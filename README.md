@@ -17,6 +17,29 @@ This fork tunes nav2 down to safe, deliberate motion and fixes several perf/corr
 **URDF:**
 - Removed bogus static `odom`/`map` links/joints - they made `robot_state_publisher` broadcast identity transforms on `/tf_static` that fought the real `odom->base_link` (driver) and `map->odom` (slam_toolbox) transforms.
 
+## How to use this fork's nix devShell
+
+The base repo's [Installation](#installation) section below assumes a plain Ubuntu 22.04 + ROS2 Humble setup. This fork's target Jetson runs JetPack 5.1.1 / Ubuntu 20.04, which can't host Humble normally - so instead, `flake.nix` / `flake.lock` define a pinned, reproducible Humble devShell (via `nix-ros-overlay`) that this fork is built and tested in. Use it instead of a native ROS2 install:
+
+1. [Install Nix](https://nixos.org/download) with flakes enabled.
+2. Enter the devShell and build the workspace from its root (one level above this repo, where your other packages live):
+   ```bash
+   nix develop --command colcon build --symlink-install
+   ```
+3. Source and run everything from inside the devShell - either prefix each command with `nix develop --command ...`, or open a devShell session first:
+   ```bash
+   nix develop
+   source install/setup.bash
+   ros2 launch go2_robot_sdk robot_cpp.launch.py
+   ```
+4. Before trusting any change on the robot, run the staged validation script:
+   ```bash
+   ./smoke-test.sh
+   ```
+   It walks discovery -> build -> static checks -> dry-launch -> live sensors -> actuation sign-off gate -> full nav2+slam.
+
+**Building or running outside `nix develop` bakes a system Python 3.8 shebang into generated scripts and breaks `rclpy` - never do that.**
+
 ---
 
 ![Ros2 SDK](https://github.com/abizovnuralem/go2_ros2_sdk/assets/33475993/49edebbe-11b6-49c6-b82d-bc46257674bd)
