@@ -1,6 +1,6 @@
 # Fork changes (2026-09)
 
-This fork tunes nav2 down to safe, deliberate motion and fixes several perf/correctness bugs found while smoke-testing on hardware.
+This fork tunes nav2 down to safe, deliberate motion and fixes several perf/correctness bugs found while smoke-testing on hardware. It also runs directly on the Go2's own onboard Jetson now, not just an off-board companion computer - see [How to use this fork's nix devShell](#how-to-use-this-forks-nix-devshell) below.
 
 **Nav2 - safer motion:**
 - Capped all motion via a `velocity_smoother` block that didn't exist before (robot ran on nav2 defaults, max 0.5 m/s / 2.5 rad/s): now 0.30 m/s linear, 0.40 rad/s angular, matching the same caps on `FollowPath`.
@@ -19,7 +19,7 @@ This fork tunes nav2 down to safe, deliberate motion and fixes several perf/corr
 
 ## How to use this fork's nix devShell
 
-The base repo's [Installation](#installation) section below assumes a plain Ubuntu 22.04 + ROS2 Humble setup, i.e. running on an off-board companion computer talking to the Go2 over WebRTC/DDS. This fork can now run directly **on the Go2's own onboard Jetson** instead - it ships JetPack 5.1.1 / Ubuntu 20.04, which can't host Humble natively, so `flake.nix` / `flake.lock` define a pinned, reproducible Humble devShell (via `nix-ros-overlay`) that this fork is built, run, and tested in on that exact hardware. Off-board setups can still use it the same way. To use the devShell instead of a native ROS2 install:
+The base repo's [Installation](#installation) section below assumes a plain Ubuntu 22.04 + ROS2 Humble setup, i.e. running on an off-board companion computer talking to the Go2 over WebRTC/DDS. The Go2's onboard Jetson ships JetPack 5.1.1 / Ubuntu 20.04, which can't host Humble natively, so `flake.nix` / `flake.lock` define a pinned, reproducible Humble devShell (via `nix-ros-overlay`) that this fork is built, run, and tested in, whether on the onboard Jetson or off-board. To use it instead of a native ROS2 install:
 
 1. [Install Nix](https://nixos.org/download) with flakes enabled.
 2. Enter the devShell and build the workspace from its root (one level above this repo, where your other packages live):
