@@ -132,6 +132,15 @@ void PointCloudAggregatorNode::setupPublishers()
 
 void PointCloudAggregatorNode::pointcloudCallback(const sensor_msgs::msg::PointCloud2::SharedPtr msg)
 {
+  // Receive time on THIS clock, taken before any processing. The input is the
+  // robot's own deskewed lidar, stamped by the Go2's clock, which has no NTP and
+  // drifts ~300ppm (~1s/hour) against the Jetson (measured 2026-09-23): after
+  // ~2h it was 2.5s off, slam_toolbox stamped map->odom 2.4s old and the Nav2
+  // controller aborted on "Transform data too old". odom->base_link is stamped
+  // with the Jetson clock by the driver, so stamping scans the same way keeps
+  // scan and odom on one clock; the cost is folding ~15ms of transport latency
+  // into the stamp.
+  const rclcpp::Time received = this->now();
   try {
     // Convert ROS message to PCL point cloud
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
@@ -178,6 +187,7 @@ void PointCloudAggregatorNode::pointcloudCallback(const sensor_msgs::msg::PointC
       std::lock_guard<std::mutex> lock(clouds_mutex_);
       aggregated_clouds_.push_back(filtered_cloud);
       latest_input_header_ = msg->header;
+      latest_input_header_.stamp = received;
       have_input_header_ = true;
       new_input_since_publish_ = true;
 
