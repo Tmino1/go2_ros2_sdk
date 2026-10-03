@@ -248,10 +248,13 @@ global_costmap:
       resolution: 0.05
       track_unknown_space: False
       static_map: True
-      width: 500
-      height: 500
-      origin_x: -250.0 
-      origin_y: -250.0
+      # 2026-10-03: rolling 30x30 m around the robot (was 500x500 fixed, which the static
+      # layer resized to the SLAM map). The SLAM map starts at the robot (no scan returns
+      # behind it), so the robot began on the costmap's edge -> "Start pose is out of
+      # costmap" (09-15, 10-03). The static layer still copies the SLAM map in.
+      rolling_window: True
+      width: 30
+      height: 30
       footprint: "[ [0.360, 0.200], [0.360, -0.200], [-0.450, -0.200], [-0.450, 0.200] ]"
       plugins: ["static_layer", "voxel_layer", "inflation_layer"]
 

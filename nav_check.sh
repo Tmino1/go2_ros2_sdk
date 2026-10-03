@@ -80,7 +80,23 @@ check_rate /scan 8 8
 check_rate /odom 15 8
 check_rate /map 0.05 25
 
-# 4. Robot inside the global costmap with margin.
+# 4a. Nothing inside/at the footprint. A sitting or lying dog puts the floor inside the scan's
+#     height band, which shows up as a wall ~0.3 m ahead and "Starting point in lethal space".
+python3 - <<'PY' || fail "scan returns within 0.45 m of base_link - is the dog sitting/lying? stand it up"
+import math, sys, time, rclpy
+from rclpy.qos import qos_profile_sensor_data
+from sensor_msgs.msg import LaserScan
+rclpy.init(); n = rclpy.create_node('nav_check_close'); got = []
+n.create_subscription(LaserScan, '/scan', got.append, qos_profile_sensor_data)
+end = time.time() + 10
+while time.time() < end and len(got) < 5: rclpy.spin_once(n, timeout_sec=0.2)
+if not got: print('FAIL: no /scan within 10s'); sys.exit(1)
+close = [r for s in got for r in s.ranges if math.isfinite(r) and s.range_min <= r < 0.45]
+print(f'info: /scan returns < 0.45 m: {len(close)} over {len(got)} scans' + (f', closest {min(close):.2f} m' if close else ''))
+sys.exit(1 if len(close) >= 3 * len(got) else 0)
+PY
+
+# 4b. Robot inside the global costmap with margin.
 python3 - <<'PY' || fail "robot not inside the global costmap with >= 0.5 m margin"
 import rclpy, sys, time
 from rclpy.qos import QoSProfile, DurabilityPolicy, ReliabilityPolicy
