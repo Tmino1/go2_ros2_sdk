@@ -272,7 +272,19 @@ class Go2NodeFactory:
                     # is ~10.7k pts at 14.7Hz (not a whole local map), so ~7
                     # clouds is ~0.5s of coverage at ~75k points - similar total
                     # points to before, much fresher.
-                    'max_aggregation_clouds': 7
+                    # 7 -> 25 (~2s at ~12.8Hz): ~10k of those ~10.7k pts are
+                    # (0,0,0) padding, so a cloud is really ~650 pts, ~96% of
+                    # them floor (2026-10-03). The L1 pattern is non-repetitive,
+                    # so a longer window fills in /scan: measured 107 beams hit
+                    # at 0.6s, 214 at 2s, 286 at 5s. Clouds are world-fixed in
+                    # odom, so motion doesn't smear them; moving people leave
+                    # a ~2s trail.
+                    'max_aggregation_clouds': 25,
+                    # The statistical outlier filter treated the sparse
+                    # above-floor points among dense floor returns as
+                    # outliers: /scan valid beams 62 with it on, 109 off
+                    # (2026-10-03).
+                    'enable_outlier_filter': False,
                 }],
             ),
             # TTS Node (new separate package)

@@ -262,7 +262,7 @@ global_costmap:
         publish_voxel_map: True
         observation_sources: scan
         scan:
-          topic: scan
+          topic: /scan  # was relative "scan" -> /global_costmap/scan, which nothing publishes (2026-10-03)
           max_obstacle_height: 2.0
           clearing: True
           marking: True
