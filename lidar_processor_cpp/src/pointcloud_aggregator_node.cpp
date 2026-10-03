@@ -41,6 +41,8 @@ PointCloudAggregatorNode::PointCloudAggregatorNode()
   
   // Initialize filters
   statistical_filter_ = std::make_unique<StatisticalFilter>(20, 2.0);
+  tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
+  tf_listener_ = std::make_unique<tf2_ros::TransformListener>(*tf_buffer_);
   
   // Initialize timing
   last_publish_time_ = std::chrono::steady_clock::now();
@@ -63,6 +65,13 @@ void PointCloudAggregatorNode::declareParameters()
 {
   this->declare_parameter("max_range", 20.0);
   this->declare_parameter("min_range", 0.1);
+  // max_range/min_range are measured from this frame's origin, looked up
+  // in the input cloud's frame. The native deskewed cloud is in the
+  // driver's world-frame "odom", whose origin is wherever the Go2 powered
+  // on: measuring from (0,0) dropped every point once the dog was >20m
+  // from there (2026-10-03: at 42m, /scan went silent and SLAM never
+  // published map).
+  this->declare_parameter("robot_frame", "base_link");
   this->declare_parameter("height_filter_min", -2.0);
   this->declare_parameter("height_filter_max", 3.0);
   this->declare_parameter("downsample_rate", 10);
@@ -93,6 +102,7 @@ AggregatorConfig PointCloudAggregatorNode::loadConfiguration()
   
   config.max_range = this->get_parameter("max_range").as_double();
   config.min_range = this->get_parameter("min_range").as_double();
+  config.robot_frame = this->get_parameter("robot_frame").as_string();
   config.height_filter_min = this->get_parameter("height_filter_min").as_double();
   config.height_filter_max = this->get_parameter("height_filter_max").as_double();
   config.downsample_rate = this->get_parameter("downsample_rate").as_int();
@@ -165,6 +175,14 @@ void PointCloudAggregatorNode::pointcloudCallback(const sensor_msgs::msg::PointC
         if (!std::isfinite(pt.x) || !std::isfinite(pt.y) || !std::isfinite(pt.z)) {
           continue;
         }
+        // The deskewed cloud pads empty returns with exact (0,0,0) - measured
+        // ~10k of ~10.6k points per cloud (2026-10-03). That is the odom
+        // origin, not the sensor, so the range filter only drops them while
+        // the robot is >max_range from where it powered on (previously they
+        // were dropped by min_range around the odom origin, by accident).
+        if (pt.x == 0.0f && pt.y == 0.0f && pt.z == 0.0f) {
+          continue;
+        }
         const uint64_t key =
           ((static_cast<uint64_t>(static_cast<int64_t>(std::lround(pt.x * 1000.0f))) & mask) << 42) |
           ((static_cast<uint64_t>(static_cast<int64_t>(std::lround(pt.y * 1000.0f))) & mask) << 21) |
@@ -179,8 +197,23 @@ void PointCloudAggregatorNode::pointcloudCallback(const sensor_msgs::msg::PointC
       cloud = unique_cloud;
     }
     
+    // Robot position in the cloud's frame, for the range filter. Latest
+    // TF rather than the cloud stamp: the stamp is on the Go2's unsynced
+    // clock (see above), and ~15ms of motion is irrelevant at this scale.
+    geometry_msgs::msg::TransformStamped robot_tf;
+    try {
+      robot_tf = tf_buffer_->lookupTransform(
+        msg->header.frame_id, config_.robot_frame, tf2::TimePointZero);
+    } catch (const tf2::TransformException& e) {
+      RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 5000,
+        "No TF %s -> %s, dropping cloud: %s",
+        msg->header.frame_id.c_str(), config_.robot_frame.c_str(), e.what());
+      return;
+    }
+
     // Apply filters
-    auto filtered_cloud = applyFilters(cloud);
+    auto filtered_cloud = applyFilters(
+      cloud, robot_tf.transform.translation.x, robot_tf.transform.translation.y);
     
     // Store for aggregation
     if (!filtered_cloud->points.empty()) {
@@ -209,7 +242,8 @@ void PointCloudAggregatorNode::pointcloudCallback(const sensor_msgs::msg::PointC
 }
 
 pcl::PointCloud<pcl::PointXYZ>::Ptr PointCloudAggregatorNode::applyFilters(
-  const pcl::PointCloud<pcl::PointXYZ>::Ptr& input_cloud)
+  const pcl::PointCloud<pcl::PointXYZ>::Ptr& input_cloud,
+  double center_x, double center_y)
 {
   if (input_cloud->points.empty()) {
     return input_cloud;
@@ -224,8 +258,8 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr PointCloudAggregatorNode::applyFilters(
       continue;
     }
     
-    // Range filter (XY distance only)
-    double distance = std::sqrt(point.x * point.x + point.y * point.y);
+    // Range filter (XY distance from the robot only)
+    double distance = std::hypot(point.x - center_x, point.y - center_y);
     if (distance < config_.min_range || distance > config_.max_range) {
       continue;
     }

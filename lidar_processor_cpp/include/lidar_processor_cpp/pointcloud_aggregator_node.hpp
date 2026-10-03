@@ -5,6 +5,7 @@
 #define LIDAR_PROCESSOR_CPP__POINTCLOUD_AGGREGATOR_NODE_HPP_
 
 #include <memory>
+#include <string>
 #include <vector>
 #include <chrono>
 #include <mutex>
@@ -16,14 +17,17 @@
 #include "pcl/point_types.h"
 #include "pcl/filters/statistical_outlier_removal.h"
 #include "pcl_conversions/pcl_conversions.h"
+#include "tf2_ros/buffer.h"
+#include "tf2_ros/transform_listener.h"
 
 namespace lidar_processor_cpp
 {
 
 struct AggregatorConfig
 {
-  double max_range;          // Maximum range from robot center
-  double min_range;          // Minimum range from robot center
+  double max_range;          // Maximum XY range from robot_frame origin
+  double min_range;          // Minimum XY range from robot_frame origin
+  std::string robot_frame;   // Frame the range filter is centred on
   double height_filter_min;  // Minimum height (z-coordinate)
   double height_filter_max;  // Maximum height (z-coordinate)
   int downsample_rate;       // Keep every Nth point
@@ -57,12 +61,15 @@ private:
   void setupPublishers();
   void pointcloudCallback(const sensor_msgs::msg::PointCloud2::SharedPtr msg);
   pcl::PointCloud<pcl::PointXYZ>::Ptr applyFilters(
-    const pcl::PointCloud<pcl::PointXYZ>::Ptr& input_cloud);
+    const pcl::PointCloud<pcl::PointXYZ>::Ptr& input_cloud,
+    double center_x, double center_y);
   void publishCallback();
   void logConfiguration();
 
   AggregatorConfig config_;
   std::unique_ptr<StatisticalFilter> statistical_filter_;
+  std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
+  std::unique_ptr<tf2_ros::TransformListener> tf_listener_;
   
   std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr> aggregated_clouds_;
   std::chrono::steady_clock::time_point last_publish_time_;
