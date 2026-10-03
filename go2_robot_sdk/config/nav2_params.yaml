@@ -57,6 +57,9 @@ bt_navigator:
     default_server_timeout: 20
     # Custom trees (BackUp shortened to 0.15m); Spin recovery reinstated
     # 2026-09-15 after being temporarily removed post-2026-09-11 incident.
+    # robot_cpp.launch.py rewrites both paths from its nav_to_pose_bt_xml /
+    # nav_through_poses_bt_xml args (default: this package's copies), so these
+    # values only matter when this file is used without that launch file.
     default_nav_to_pose_bt_xml: "/home/unitree/go2_ws/install/go2_robot_sdk/share/go2_robot_sdk/config/navigate_to_pose_no_spin.xml"
     default_nav_through_poses_bt_xml: "/home/unitree/go2_ws/install/go2_robot_sdk/share/go2_robot_sdk/config/navigate_through_poses_no_spin.xml"
     # 'default_nav_through_poses_bt_xml' and 'default_nav_to_pose_bt_xml' are use defaults:
@@ -260,6 +263,13 @@ global_costmap:
         plugin: "nav2_costmap_2d::VoxelLayer"
         enabled: True
         publish_voxel_map: True
+        # 2026-10-03: the scan origin sits at z ~ -0.01 in the map frame, below the
+        # default origin_z 0, so every update logged "Sensor origin ... out of map
+        # bounds ... cannot raytrace" and the global costmap never cleared. 11 x 0.2
+        # from -0.10 keeps the top at 2.1m (>= max_obstacle_height).
+        origin_z: -0.10
+        z_resolution: 0.2
+        z_voxels: 11
         observation_sources: scan
         scan:
           topic: /scan  # was relative "scan" -> /global_costmap/scan, which nothing publishes (2026-10-03)

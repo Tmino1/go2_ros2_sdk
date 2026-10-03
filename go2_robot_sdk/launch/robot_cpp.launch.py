@@ -9,6 +9,7 @@ from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from launch.actions import IncludeLaunchDescription, DeclareLaunchArgument
 from launch.launch_description_sources import FrontendLaunchDescriptionSource, PythonLaunchDescriptionSource
+from nav2_common.launch import RewrittenYaml
 
 
 class Go2LaunchConfig:
@@ -66,6 +67,8 @@ class Go2LaunchConfig:
             'twist_mux': os.path.join(self.package_dir, 'config', 'twist_mux.yaml'),
             'slam': os.path.join(self.package_dir, 'config', 'mapper_params_online_async.yaml'),
             'nav2': os.path.join(self.package_dir, 'config', 'nav2_params.yaml'),
+            'nav_to_pose_bt': os.path.join(self.package_dir, 'config', 'navigate_to_pose_no_spin.xml'),
+            'nav_through_poses_bt': os.path.join(self.package_dir, 'config', 'navigate_through_poses_no_spin.xml'),
             'rviz': os.path.join(self.package_dir, 'config', self.rviz_config),
             'urdf': os.path.join(self.package_dir, 'urdf', self.urdf_file),
         }
@@ -89,6 +92,16 @@ class Go2NodeFactory:
             DeclareLaunchArgument('speech', default_value='false', description='Launch TTS/speech_processor node'),
             DeclareLaunchArgument('joystick', default_value='true', description='Launch joystick'),
             DeclareLaunchArgument('teleop', default_value='true', description='Launch teleoperation'),
+            # Overrides for projects built on this SDK: point these at your own files
+            # instead of editing the SDK's config/ (defaults are the SDK's own).
+            DeclareLaunchArgument('nav2_params_file', default_value=self.config.config_paths['nav2'],
+                                  description='Nav2 params YAML (also used by AMCL localization)'),
+            DeclareLaunchArgument('slam_params_file', default_value=self.config.config_paths['slam'],
+                                  description='slam_toolbox params YAML'),
+            DeclareLaunchArgument('nav_to_pose_bt_xml', default_value=self.config.config_paths['nav_to_pose_bt'],
+                                  description='bt_navigator default NavigateToPose behavior tree'),
+            DeclareLaunchArgument('nav_through_poses_bt_xml', default_value=self.config.config_paths['nav_through_poses_bt'],
+                                  description='bt_navigator default NavigateThroughPoses behavior tree'),
         ]
     
     def create_robot_state_nodes(self) -> List[Node]:
@@ -364,6 +377,15 @@ class Go2NodeFactory:
         with_slam = LaunchConfiguration('slam', default='true')
         with_localization = LaunchConfiguration('localization', default='false')
         with_nav2 = LaunchConfiguration('nav2', default='true')
+        # The BT launch args win over whatever the params file says.
+        nav2_params = RewrittenYaml(
+            source_file=LaunchConfiguration('nav2_params_file'),
+            param_rewrites={
+                'default_nav_to_pose_bt_xml': LaunchConfiguration('nav_to_pose_bt_xml'),
+                'default_nav_through_poses_bt_xml': LaunchConfiguration('nav_through_poses_bt_xml'),
+            },
+            convert_types=True,
+        )
         
         foxglove_launch = os.path.join(
             get_package_share_directory('foxglove_bridge'),
@@ -384,7 +406,7 @@ class Go2NodeFactory:
                 ]),
                 condition=IfCondition(with_slam),
                 launch_arguments={
-                    'slam_params_file': self.config.config_paths['slam'],
+                    'slam_params_file': LaunchConfiguration('slam_params_file'),
                     'use_sim_time': use_sim_time,
                 }.items(),
             ),
@@ -397,7 +419,7 @@ class Go2NodeFactory:
                 condition=IfCondition(with_localization),
                 launch_arguments={
                     'map': map_file,
-                    'params_file': self.config.config_paths['nav2'],
+                    'params_file': nav2_params,
                     'use_sim_time': use_sim_time,
                 }.items(),
             ),
@@ -409,7 +431,7 @@ class Go2NodeFactory:
                 ]),
                 condition=IfCondition(with_nav2),
                 launch_arguments={
-                    'params_file': self.config.config_paths['nav2'],
+                    'params_file': nav2_params,
                     'use_sim_time': use_sim_time,
                 }.items(),
             ),

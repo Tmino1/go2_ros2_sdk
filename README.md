@@ -32,11 +32,36 @@ The base repo's [Installation](#installation) section below assumes a plain Ubun
    source install/setup.bash
    ros2 launch go2_robot_sdk robot_cpp.launch.py
    ```
-4. Before trusting any change on the robot, run the staged validation script:
+4. At every session setup, and before merging any change to `master`, run the no-motion health gate:
    ```bash
-   ./smoke-test.sh
+   ROBOT_IP=192.168.123.161 ./nav_check.sh            # any robot_cpp.launch.py args can follow
    ```
-   It walks discovery -> build -> static checks -> dry-launch -> live sensors -> actuation sign-off gate -> full nav2+slam.
+   It launches driver + SLAM + Nav2 with teleop off (fails if `/cmd_vel` has a subscriber), checks
+   install/ matches src, /scan /odom /map rates, that the robot sits inside the global costmap, and
+   greps the log for known failure signatures (costmap raytrace/bounds, stale TF, dead processes).
+   Exit 0 = PASS. Changes go on a branch and merge only after a PASS.
+
+### Using this SDK from a larger project
+
+Keep project-specific tuning out of this repo: `robot_cpp.launch.py` takes overrides that default
+to this package's own files.
+
+| Launch arg | Default |
+|---|---|
+| `nav2_params_file` | `config/nav2_params.yaml` |
+| `slam_params_file` | `config/mapper_params_online_async.yaml` |
+| `nav_to_pose_bt_xml` | `config/navigate_to_pose_no_spin.xml` |
+| `nav_through_poses_bt_xml` | `config/navigate_through_poses_no_spin.xml` |
+
+```bash
+ros2 launch go2_robot_sdk robot_cpp.launch.py nav_to_pose_bt_xml:=/path/to/my_tree.xml
+```
+
+The BT args are applied on top of whichever params file is used. A single goal can also pick its
+own tree through the `behavior_tree` field of the `NavigateToPose` goal.
+
+Python deps: `requirements.lock` is the exact `.venv` that was last checked on the robot
+(`pip install -r requirements.lock`); `requirements.txt` is the loose upstream list.
 
 **Building or running outside `nix develop` bakes a system Python 3.8 shebang into generated scripts and breaks `rclpy` - never do that.**
 
